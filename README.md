@@ -28,3 +28,9 @@ to identify facial expressions and hand gestures in real time.
 - Healthcare monitoring
 - Human-computer interaction
 - Automation systems
+## Results
+
+### Face & Hand Recognition Output
+![Result 1](p1.jpg)
+![Result 2](p2.jpg)
+![Result 3](p3.jpg)
