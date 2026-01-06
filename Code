@@ -1,0 +1,223 @@
+# ================================
+# Advanced Face & Hand Recognition System
+# Author: A Bhushanaskanda S Vishwamithra
+# Description:
+#   Real-time system for facial emotion recognition
+#   and hand gesture detection using OpenCV and MediaPipe.
+# ================================
+
+import cv2
+import numpy as np
+import time
+import mediapipe as mp
+
+# --------------------------------------------------
+# Camera Testing Utility
+# --------------------------------------------------
+def test_camera_access():
+    """
+    Tests multiple camera indices (0–4) to find an available camera.
+    Returns the working camera index or None if no camera is found.
+    """
+    print("Testing camera access...")
+    
+    for i in range(5):
+        print(f"Testing camera index {i}...")
+        cap = cv2.VideoCapture(i)
+        
+        if cap.isOpened():
+            ret, frame = cap.read()
+            if ret and frame is not None:
+                print(f"✓ Camera {i} is working!")
+                cap.release()
+                return i
+            else:
+                print(f"✗ Camera {i} opened but could not read frame")
+        else:
+            print(f"✗ Camera {i} failed to open")
+        
+        cap.release()
+    
+    print("No working camera found!")
+    return None
+
+# --------------------------------------------------
+# Haar Cascade Initialization
+# --------------------------------------------------
+def initialize_cascades():
+    """
+    Loads Haar Cascade classifiers for face, eye, and smile detection.
+    Returns initialized classifiers or None if loading fails.
+    """
+    face_cascade = cv2.CascadeClassifier(
+        cv2.data.haarcascades + 'haarcascade_frontalface_default.xml'
+    )
+    eye_cascade = cv2.CascadeClassifier(
+        cv2.data.haarcascades + 'haarcascade_eye.xml'
+    )
+    smile_cascade = cv2.CascadeClassifier(
+        cv2.data.haarcascades + 'haarcascade_smile.xml'
+    )
+    
+    if face_cascade.empty() or eye_cascade.empty() or smile_cascade.empty():
+        print("❌ Error loading cascade classifiers")
+        return None, None, None
+    
+    print("✓ Haar cascades loaded successfully")
+    return face_cascade, eye_cascade, smile_cascade
+
+# --------------------------------------------------
+# MediaPipe Initialization
+# --------------------------------------------------
+def initialize_mediapipe():
+    """
+    Initializes MediaPipe Hands for real-time hand landmark detection.
+    """
+    mp_hands = mp.solutions.hands
+    hands = mp_hands.Hands(
+        static_image_mode=False,
+        max_num_hands=2,
+        min_detection_confidence=0.7,
+        min_tracking_confidence=0.5
+    )
+    mp_drawing = mp.solutions.drawing_utils
+    print("✓ MediaPipe initialized successfully")
+    return hands, mp_hands, mp_drawing
+
+# --------------------------------------------------
+# Hand Gesture Detection
+# --------------------------------------------------
+def detect_hand_gesture(landmarks):
+    """
+    Detects hand gestures based on finger landmark positions.
+    Returns gesture name and display color.
+    """
+    if not landmarks:
+        return "No Hand", (128, 128, 128)
+    
+    # Extract fingertip and joint landmarks
+    thumb_tip, thumb_ip = landmarks[4], landmarks[3]
+    index_tip, index_pip = landmarks[8], landmarks[6]
+    middle_tip, middle_pip = landmarks[12], landmarks[10]
+    ring_tip, ring_pip = landmarks[16], landmarks[14]
+    pinky_tip, pinky_pip = landmarks[20], landmarks[18]
+    
+    # Determine which fingers are extended
+    fingers_up = [
+        thumb_tip.x > thumb_ip.x,
+        index_tip.y < index_pip.y,
+        middle_tip.y < middle_pip.y,
+        ring_tip.y < ring_pip.y,
+        pinky_tip.y < pinky_pip.y
+    ]
+    
+    total_fingers = sum(fingers_up)
+    
+    # Gesture classification
+    if total_fingers == 0:
+        return "Fist", (0, 0, 255)
+    elif total_fingers == 1 and fingers_up[1]:
+        return "Pointing", (255, 255, 0)
+    elif total_fingers == 2 and fingers_up[1] and fingers_up[2]:
+        return "Peace", (0, 255, 255)
+    elif total_fingers == 5:
+        return "Open Hand", (0, 255, 0)
+    else:
+        return f"{total_fingers} Fingers", (255, 255, 255)
+
+# --------------------------------------------------
+# Facial Emotion Detection
+# --------------------------------------------------
+def detect_emotion(face_gray, face_color, eye_cascade, smile_cascade):
+    """
+    Estimates facial emotion using Haar features and image statistics.
+    """
+    eyes = eye_cascade.detectMultiScale(face_gray, 1.1, 3)
+    smiles = smile_cascade.detectMultiScale(face_gray, 1.8, 20)
+    
+    brightness = np.mean(face_gray)
+    contrast = np.std(face_gray)
+    
+    # Emotion heuristics
+    if len(smiles) > 0:
+        return "Happy", (0, 255, 0), 0.85
+    elif brightness < 95:
+        return "Sad", (255, 0, 0), 0.70
+    elif contrast > 45:
+        return "Angry", (0, 0, 255), 0.80
+    else:
+        return "Neutral", (200, 200, 200), 0.60
+
+# --------------------------------------------------
+# Main Execution
+# --------------------------------------------------
+def main():
+    print("=== Advanced Face & Hand Recognition System ===")
+    
+    # Camera setup
+    camera_index = test_camera_access()
+    if camera_index is None:
+        return
+    
+    face_cascade, eye_cascade, smile_cascade = initialize_cascades()
+    hands, mp_hands, mp_drawing = initialize_mediapipe()
+    
+    cap = cv2.VideoCapture(camera_index)
+    cap.set(cv2.CAP_PROP_FRAME_WIDTH, 1280)
+    cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 720)
+    
+    time.sleep(2)  # Camera warm-up
+    
+    while True:
+        ret, frame = cap.read()
+        if not ret:
+            continue
+        
+        gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+        rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+        
+        faces = face_cascade.detectMultiScale(gray, 1.1, 4)
+        hand_results = hands.process(rgb)
+        
+        # Process faces
+        for (x, y, w, h) in faces:
+            face_gray = gray[y:y+h, x:x+w]
+            face_color = frame[y:y+h, x:x+w]
+            
+            emotion, color, conf = detect_emotion(
+                face_gray, face_color, eye_cascade, smile_cascade
+            )
+            
+            cv2.rectangle(frame, (x, y), (x+w, y+h), color, 2)
+            cv2.putText(
+                frame, f"{emotion} ({conf:.0%})",
+                (x, y-10), cv2.FONT_HERSHEY_SIMPLEX, 0.6, color, 2
+            )
+        
+        # Process hands
+        if hand_results.multi_hand_landmarks:
+            for hand_landmarks in hand_results.multi_hand_landmarks:
+                mp_drawing.draw_landmarks(
+                    frame, hand_landmarks, mp_hands.HAND_CONNECTIONS
+                )
+                gesture, g_color = detect_hand_gesture(
+                    hand_landmarks.landmark
+                )
+                cv2.putText(
+                    frame, gesture, (20, 40),
+                    cv2.FONT_HERSHEY_SIMPLEX, 1, g_color, 2
+                )
+        
+        cv2.imshow("Face & Hand Recognition", frame)
+        if cv2.waitKey(1) & 0xFF == ord('q'):
+            break
+    
+    cap.release()
+    cv2.destroyAllWindows()
+
+# --------------------------------------------------
+# Program Entry Point
+# --------------------------------------------------
+if __name__ == "__main__":
+    main()
+
